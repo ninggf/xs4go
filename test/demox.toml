@@ -1,0 +1,11 @@
+name = "demo10"
+index_server = "127.0.0.1:8383"
+search_server = "127.0.0.1:8384"
+
+[fields]
+
+[fields.id]
+type = "id"
+
+[fields.message]
+type = "body"
