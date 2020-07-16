@@ -1,7 +1,8 @@
-package xs
+package tokenizer
 
 import "strings"
 
+// Tokenizer used by indexer and searcher
 type Tokenizer interface {
 	GetTokens(text string) []string
 }

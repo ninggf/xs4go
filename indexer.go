@@ -8,6 +8,7 @@ import (
 	"github.com/ninggf/xs4go/cmd"
 	"github.com/ninggf/xs4go/schema"
 	"github.com/ninggf/xs4go/server"
+	"github.com/ninggf/xs4go/tokenizer"
 )
 
 // Indexer indicates a index server
@@ -17,7 +18,7 @@ type Indexer struct {
 	schema     *schema.Schema
 	cfg        *schema.Config
 	buffer     *bytes.Buffer
-	tokenizer  Tokenizer
+	tokenizer  tokenizer.Tokenizer
 	bufferSize uint32
 	rebuilding bool
 }
@@ -49,7 +50,7 @@ func (indexer *Indexer) Schema() *schema.Schema {
 }
 
 // SetTokenizer sets your tokenizer
-func (indexer *Indexer) SetTokenizer(tokenizer Tokenizer) {
+func (indexer *Indexer) SetTokenizer(tokenizer tokenizer.Tokenizer) {
 	if tokenizer != nil {
 		indexer.tokenizer = tokenizer
 	}
@@ -252,7 +253,7 @@ func (indexer *Indexer) setProject(project string) (*Indexer, error) {
 		indexer.cfg = nil
 		return nil, err
 	}
-	var tokenizer Tokenizer = DefaultTokenizer{"default"}
+	var tokenizer tokenizer.Tokenizer = tokenizer.DefaultTokenizer{"default"}
 	indexer.tokenizer = tokenizer
 	return indexer, nil
 }

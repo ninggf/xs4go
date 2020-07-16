@@ -11,6 +11,7 @@ import (
 	"github.com/ninggf/xs4go/cmd"
 	"github.com/ninggf/xs4go/schema"
 	"github.com/ninggf/xs4go/server"
+	"github.com/ninggf/xs4go/tokenizer"
 )
 
 const (
@@ -28,7 +29,7 @@ type Searcher struct {
 	schema      *schema.Schema
 	cfg         *schema.Config
 	buffer      *bytes.Buffer
-	tokenizer   Tokenizer
+	tokenizer   tokenizer.Tokenizer
 	bufferSize  uint32
 	defaultOp   uint8
 	queryPrefix map[string]bool
@@ -598,7 +599,7 @@ func (searcher *Searcher) setProject(project string) (*Searcher, error) {
 		searcher.cfg = nil
 		return nil, err
 	}
-	var tokenizer Tokenizer = DefaultTokenizer{"default"}
+	var tokenizer tokenizer.Tokenizer = tokenizer.DefaultTokenizer{"default"}
 	searcher.tokenizer = tokenizer
 	searcher.queryPrefix = make(map[string]bool)
 	searcher.Facets = make(map[string]Facet)
