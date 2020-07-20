@@ -8,7 +8,9 @@ import "C"
 
 import (
 	"fmt"
+	"sort"
 	"strings"
+	"sync"
 	"unsafe"
 )
 
@@ -19,56 +21,76 @@ const (
 	SCWS_MULTI_ZMAIN   int = 0x04000 // 重要单字
 	SCWS_MULTI_ZALL    int = 0x08000 // 全部单字
 	SCWS_MULTI_MASK    int = 0xff000
+	SCWS_XDICT_XDB     int = 1
+	SCWS_XDICT_MEM     int = 2
+	SCWS_XDICT_TXT     int = 4
 )
 
 // ScwsTokenizer scws tokenizer depends on scws
 type ScwsTokenizer struct {
 	scws C.scws_t
 }
+type kv struct {
+	Key   string
+	Value int
+}
 
-// NewScwsTokenizer create a scws tokenizer
-func NewScwsTokenizer(dict string) (*ScwsTokenizer, error) {
-	scws := C.scws_new()
+var (
+	gscws *ScwsTokenizer
+	mutex sync.Mutex
+)
 
-	if scws == nil {
-		return nil, fmt.Errorf("cannot initialize scws tokenizer")
+// InitScws 初始化全局的scws实例.
+func InitScws(dict string, rule ...string) error {
+	mutex.Lock()
+	defer mutex.Unlock()
+	if gscws == nil {
+		var err error
+		gscws, err = newScwsTokenizer(dict)
+		if len(rule) > 0 {
+			gscws.SetRule(rule[0])
+		}
+		if err != nil {
+			return err
+		}
 	}
-	charset := C.CString("utf8")
-	defer C.free(unsafe.Pointer(charset))
-	C.scws_set_charset(scws, charset)
-	tokenizer := ScwsTokenizer{scws: scws}
-	var err error
-	if strings.HasSuffix(dict, ".xdb") {
-		err = tokenizer.SetXdbDict(dict)
-	} else if strings.HasSuffix(dict, ".txt") {
-		err = tokenizer.SetTxtDict(dict)
+	return nil
+}
+
+// CloseScws close scws
+func CloseScws() {
+	if gscws != nil {
+		gscws.Close()
+		gscws = nil
 	}
-	C.scws_set_ignore(scws, C.int(1))
-	if err != nil {
-		tokenizer.Close()
-		return nil, err
+}
+
+// GetScwsTokenizer 获取一个scws实例，该方法必须在InitScws之后调用。
+func GetScwsTokenizer() (*ScwsTokenizer, error) {
+	if gscws == nil {
+		return nil, fmt.Errorf("please call tokenizer.InitScws first")
 	}
-	return &tokenizer, nil
+	return gscws.fork()
 }
 
 // AddXdbDict load xdb dict file
 func (scws *ScwsTokenizer) AddXdbDict(dict string) error {
-	return scws.addDict(dict, 1)
+	return scws.addDict(dict, 1^2)
 }
 
 // AddTxtDict load text dict file
 func (scws *ScwsTokenizer) AddTxtDict(dict string) error {
-	return scws.addDict(dict, 4)
+	return scws.addDict(dict, 4^2)
 }
 
 // SetXdbDict load xdb dict file
 func (scws *ScwsTokenizer) SetXdbDict(dict string) error {
-	return scws.setDict(dict, 1)
+	return scws.setDict(dict, 1^2)
 }
 
 // SetTxtDict load text dict file
 func (scws *ScwsTokenizer) SetTxtDict(dict string) error {
-	return scws.setDict(dict, 4)
+	return scws.setDict(dict, 4^2)
 }
 
 // SetRule 设定规则集文件。
@@ -103,15 +125,15 @@ func (scws *ScwsTokenizer) SetDuality(yes int) {
 
 // GetTokens return terms split by scws
 func (scws ScwsTokenizer) GetTokens(text string) []string {
-	results := []string{}
+
 	if scws.scws == nil || text == "" || strings.Trim(text, "\n\r ") == "" {
-		return results
+		return []string{}
 	}
 	content := C.CString(text)
 	defer C.free(unsafe.Pointer(content))
 
 	buffer := []byte(text)
-
+	resMap := map[string]int{}
 	C.scws_send_text(scws.scws, content, C.int(len(buffer)))
 	for {
 		res := C.scws_get_result(scws.scws)
@@ -125,7 +147,12 @@ func (scws ScwsTokenizer) GetTokens(text string) []string {
 			term := buffer[cur.off:ln]
 			idf := int(cur.idf)
 			if idf > 0 {
-				results = append(results, string(term))
+				termx := string(term)
+				if _, ok := resMap[termx]; ok {
+					resMap[termx]++
+				} else {
+					resMap[termx] = 1
+				}
 			}
 			cur = cur.next
 			if cur == nil {
@@ -133,6 +160,19 @@ func (scws ScwsTokenizer) GetTokens(text string) []string {
 			}
 		}
 		C.scws_free_result(res)
+	}
+	//以下对词进行排序
+	ss := []kv{}
+	for k, v := range resMap {
+		ss = append(ss, kv{k, v})
+	}
+	sort.Slice(ss, func(i, j int) bool {
+		return ss[i].Value > ss[j].Value
+	})
+
+	results := make([]string, len(resMap))
+	for i, v := range ss {
+		results[i] = v.Key
 	}
 	return results
 }
@@ -171,4 +211,40 @@ func (scws *ScwsTokenizer) setDict(dict string, mode int) error {
 		return fmt.Errorf("cannot set dict to scws")
 	}
 	return fmt.Errorf("scws is closed")
+}
+
+// newScwsTokenizer create a scws tokenizer
+func newScwsTokenizer(dict string) (*ScwsTokenizer, error) {
+	scws := C.scws_new()
+
+	if scws == nil {
+		return nil, fmt.Errorf("cannot initialize scws tokenizer")
+	}
+	charset := C.CString("utf8")
+	defer C.free(unsafe.Pointer(charset))
+	C.scws_set_charset(scws, charset)
+	tokenizer := ScwsTokenizer{scws: scws}
+	var err error
+	if strings.HasSuffix(dict, ".xdb") {
+		err = tokenizer.SetXdbDict(dict)
+	} else if strings.HasSuffix(dict, ".txt") {
+		err = tokenizer.SetTxtDict(dict)
+	}
+	C.scws_set_ignore(scws, C.int(1))
+	if err != nil {
+		tokenizer.Close()
+		return nil, err
+	}
+	return &tokenizer, nil
+}
+
+// fork a scws
+func (scws *ScwsTokenizer) fork() (*ScwsTokenizer, error) {
+	scwsForked := C.scws_fork(scws.scws)
+	if scwsForked == nil {
+		return nil, fmt.Errorf("cannot fork a new scws instance for OOM")
+	}
+	sc := &ScwsTokenizer{scwsForked}
+
+	return sc, nil
 }
