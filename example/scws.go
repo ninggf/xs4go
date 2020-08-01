@@ -13,23 +13,20 @@ func main() {
 		fmt.Println(err)
 	}
 
-	scws, _ := tokenizer.GetScwsTokenizer()
-	scws.SetMulti(tokenizer.SCWS_MULTI_SHORT)
-	terms := scws.GetTokens("我非常喜欢golang，中国人也非常喜欢吃大米哦")
-	fmt.Println(terms)
-	scws.Close()
-
-	scws, _ = tokenizer.GetScwsTokenizer()
-	scws.SetMulti(tokenizer.SCWS_MULTI_ZMAIN)
-	terms = scws.GetTokens("我非常喜欢golang，中国人也非常喜欢吃大米哦")
-	fmt.Println(terms)
-	scws.Close()
-
-	scws, _ = tokenizer.GetScwsTokenizer()
-	scws.SetMulti(tokenizer.SCWS_MULTI_ZALL)
-	terms = scws.GetTokens("我非常喜欢golang，中国人也非常喜欢吃大米哦")
-	fmt.Println(terms)
-	scws.Close()
+	for i := 0; i < 1000; i++ {
+		fmt.Println(getTks("我非常喜欢golang，中国人也非常喜欢吃大米哦"))
+	}
 
 	tokenizer.CloseScws()
+}
+
+func getTks(str string) []string {
+	scws, err := tokenizer.GetScwsTokenizer()
+	defer scws.Close()
+	if err != nil {
+		fmt.Println(err)
+		return []string{}
+	}
+	scws.SetMulti(tokenizer.SCWS_MULTI_ZALL)
+	return scws.GetTokens(str)
 }

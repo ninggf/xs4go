@@ -179,7 +179,7 @@ func (scws ScwsTokenizer) GetTokens(text string) []string {
 
 // Close tokenizer to free it's memory
 func (scws *ScwsTokenizer) Close() {
-	if scws.scws != nil {
+	if scws != nil && scws.scws != nil {
 		C.scws_free(scws.scws)
 		scws.scws = nil
 	}
