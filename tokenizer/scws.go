@@ -1,9 +1,17 @@
 package tokenizer
 
-// #cgo CFLAGS: -g -Wall
-// #cgo LDFLAGS: -lscws
-// #include <stdlib.h>
-// #include <scws/scws.h>
+/*
+#cgo CFLAGS: -g -Wall
+#cgo LDFLAGS: -lscws
+#include <stdlib.h>
+#include <scws/scws.h>
+int am_i_null(scws_t pointer) {
+  if (NULL == pointer) {
+    return 0;
+  }
+  return 1;
+}
+*/
 import "C"
 
 import (
@@ -28,16 +36,21 @@ const (
 
 // ScwsTokenizer scws tokenizer depends on scws
 type ScwsTokenizer struct {
-	scws C.scws_t
+	scws  C.scws_t
+	inUse bool
 }
+
 type kv struct {
 	Key   string
 	Value int
 }
 
 var (
-	gscws *ScwsTokenizer
-	mutex sync.Mutex
+	gscws   *ScwsTokenizer
+	mutex   sync.Mutex
+	fmutex  sync.Mutex
+	closeCh chan C.scws_t
+	quitCh  chan int
 )
 
 // InitScws 初始化全局的scws实例.
@@ -47,27 +60,46 @@ func InitScws(dict string, rule ...string) error {
 	if gscws == nil {
 		var err error
 		gscws, err = newScwsTokenizer(dict)
-		if len(rule) > 0 {
-			gscws.SetRule(rule[0])
-		}
 		if err != nil {
 			return err
 		}
+
+		if len(rule) > 0 {
+			gscws.SetRule(rule[0])
+		}
+
+		closeCh = make(chan C.scws_t, 4096)
+		quitCh = make(chan int)
+
+		go func() {
+			for {
+				select {
+				case scwst := <-closeCh:
+					fmutex.Lock()
+					C.scws_free(scwst)
+					fmutex.Unlock()
+				case <-quitCh:
+					gscws = nil
+					return
+				}
+			}
+		}()
 	}
 	return nil
 }
 
 // CloseScws close scws
 func CloseScws() {
-	if gscws != nil {
-		gscws.Close()
-		gscws = nil
+	if gscws != nil && gscws.inUse {
+		gscws.inUse = false
+		closeCh <- gscws.scws
+		quitCh <- 1
 	}
 }
 
 // GetScwsTokenizer 获取一个scws实例，该方法必须在InitScws之后调用。
 func GetScwsTokenizer() (*ScwsTokenizer, error) {
-	if gscws == nil {
+	if gscws == nil || C.am_i_null(gscws.scws) == C.int(0) {
 		return nil, fmt.Errorf("please call tokenizer.InitScws first")
 	}
 	return gscws.fork()
@@ -125,7 +157,6 @@ func (scws *ScwsTokenizer) SetDuality(yes int) {
 
 // GetTokens return terms split by scws
 func (scws ScwsTokenizer) GetTokens(text string) []string {
-
 	if scws.scws == nil || text == "" || strings.Trim(text, "\n\r ") == "" {
 		return []string{}
 	}
@@ -179,9 +210,9 @@ func (scws ScwsTokenizer) GetTokens(text string) []string {
 
 // Close tokenizer to free it's memory
 func (scws *ScwsTokenizer) Close() {
-	if scws != nil && scws.scws != nil {
-		C.scws_free(scws.scws)
-		scws.scws = nil
+	if scws != nil && scws.inUse {
+		scws.inUse = false
+		closeCh <- scws.scws
 	}
 }
 
@@ -217,34 +248,41 @@ func (scws *ScwsTokenizer) setDict(dict string, mode int) error {
 func newScwsTokenizer(dict string) (*ScwsTokenizer, error) {
 	scws := C.scws_new()
 
-	if scws == nil {
+	if scws == nil || C.am_i_null(scws) == C.int(0) {
 		return nil, fmt.Errorf("cannot initialize scws tokenizer")
 	}
 	charset := C.CString("utf8")
 	defer C.free(unsafe.Pointer(charset))
 	C.scws_set_charset(scws, charset)
-	tokenizer := ScwsTokenizer{scws: scws}
+	tokenizer := ScwsTokenizer{scws: scws, inUse: true}
 	var err error
 	if strings.HasSuffix(dict, ".xdb") {
 		err = tokenizer.SetXdbDict(dict)
 	} else if strings.HasSuffix(dict, ".txt") {
 		err = tokenizer.SetTxtDict(dict)
 	}
-	C.scws_set_ignore(scws, C.int(1))
 	if err != nil {
 		tokenizer.Close()
 		return nil, err
 	}
+	C.scws_set_ignore(scws, C.int(1))
 	return &tokenizer, nil
 }
 
 // fork a scws
 func (scws *ScwsTokenizer) fork() (*ScwsTokenizer, error) {
+	fmutex.Lock()
 	scwsForked := C.scws_fork(scws.scws)
-	if scwsForked == nil {
+	fmutex.Unlock()
+	if scwsForked == nil || C.am_i_null(scwsForked) == C.int(0) {
 		return nil, fmt.Errorf("cannot fork a new scws instance for OOM")
 	}
-	sc := &ScwsTokenizer{scwsForked}
+
+	charset := C.CString("utf8")
+	defer C.free(unsafe.Pointer(charset))
+	C.scws_set_charset(scwsForked, charset)
+	C.scws_set_ignore(scwsForked, C.int(1))
+	sc := &ScwsTokenizer{scwsForked, true}
 
 	return sc, nil
 }
