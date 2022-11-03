@@ -1,4 +1,4 @@
-package xs
+package xs4go
 
 import (
 	"bytes"
