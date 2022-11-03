@@ -1,11 +1,12 @@
 # xs4go
-xs golang sdk
+
+xunsearch golang sdk
 
 ## 文档
 
-建立索引: 参考[Xunsearch索引](http://www.xunsearch.com/doc/php/guide/index.overview)部分。
+建立索引: 参考[Xunsearch 索引](http://www.xunsearch.com/doc/php/guide/index.overview)部分。
 
-搜索: 参考[Xunsearch搜索](http://www.xunsearch.com/doc/php/guide/search.overview)部分。
+搜索: 参考[Xunsearch 搜索](http://www.xunsearch.com/doc/php/guide/search.overview)部分。
 
 ## 配置文件
 
